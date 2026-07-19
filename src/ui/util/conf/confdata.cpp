@@ -122,6 +122,18 @@ void ConfData::writeConf(const WriteConfArgs &wca, AppParseOptions &opt)
     exeAppsOff = dataOffset();
     writeApps(opt.exeAppsMap);
 
+    // Interface table (aligned to 8 bytes for FORT_CONF_IFACE.luid)
+    quint32 ifacesOff = 0;
+    quint16 ifacesN = 0;
+    if (wca.ifaceTable != nullptr && !wca.ifaceTable->isEmpty()) {
+        while ((dataOffset() & 7) != 0) {
+            *m_data++ = '\0';
+        }
+        ifacesOff = dataOffset();
+        ifacesN = quint16(wca.ifaceTable->count());
+        writeIfaces(*wca.ifaceTable);
+    }
+
     PFORT_CONF_GROUP conf_group = &drvConfIo->conf_group;
 
     writeAppGroupFlags(conf_group, wca.conf);
@@ -136,11 +148,15 @@ void ConfData::writeConf(const WriteConfArgs &wca, AppParseOptions &opt)
     drvConf->prefix_apps_n = quint16(opt.prefixAppsMap.size());
     drvConf->exe_apps_n = quint16(opt.exeAppsMap.size());
 
+    drvConf->ifaces_n = ifacesN;
+
     drvConf->addr_groups_off = addrGroupsOff;
 
     drvConf->wild_apps_off = wildAppsOff;
     drvConf->prefix_apps_off = prefixAppsOff;
     drvConf->exe_apps_off = exeAppsOff;
+
+    drvConf->ifaces_off = ifacesOff;
 }
 
 void ConfData::writeConfFlags(const FirewallConf &conf)
@@ -368,6 +384,18 @@ void ConfData::writeApps(const appdata_map_t &appsMap, bool useHeader)
     }
 
     m_data += offTableSize + FORT_CONF_STR_DATA_SIZE(off);
+}
+
+void ConfData::writeIfaces(const IfaceTable &ifaceTable)
+{
+    const auto &ifaces = ifaceTable.ifaces();
+    const int n = ifaces.size();
+    if (n == 0)
+        return;
+
+    const uint size = uint(n) * uint(sizeof(FORT_CONF_IFACE));
+    memcpy(m_data, ifaces.constData(), size);
+    m_data += size;
 }
 
 void ConfData::migrateZoneData(const QByteArray &zoneData)

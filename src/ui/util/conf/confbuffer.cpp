@@ -100,6 +100,7 @@ bool ConfBuffer::writeConf(
     WriteConfArgs wca = {
         .conf = conf,
         .ad = { .addressRanges = addrranges_arr_t(conf.addressGroups().size()) },
+        .ifaceTable = &m_ifaceTable,
     };
 
     quint32 addressGroupsSize = 0;
@@ -126,7 +127,9 @@ bool ConfBuffer::writeConf(
             + FORT_CONF_STR_DATA_SIZE(opt.wildAppsSize)
             + FORT_CONF_STR_HEADER_SIZE(opt.prefixAppsMap.size())
             + FORT_CONF_STR_DATA_SIZE(opt.prefixAppsSize)
-            + FORT_CONF_STR_DATA_SIZE(opt.exeAppsSize));
+            + FORT_CONF_STR_DATA_SIZE(opt.exeAppsSize)
+            + /*iface table 8-byte alignment padding*/ 8
+            + m_ifaceTable.count() * int(sizeof(FORT_CONF_IFACE)));
 
     buffer().resize(confIoSize);
 
@@ -433,6 +436,7 @@ bool ConfBuffer::addApp(const App &app, bool isNew, appdata_map_t &appsMap, quin
                 .is_new = isNew,
                 .found = true,
         },
+        .iface_index = m_ifaceTable.indexOf(app.ifaceLuid),
         .group_index = app.groupIndex,
         .rule_id = app.ruleId,
         .app_id = quint32(app.appId),
@@ -511,6 +515,10 @@ bool ConfBuffer::writeRule(const Rule &rule, const WalkRulesArgs &wra)
     const bool hasFilters = !rule.ruleText.isEmpty();
     confRule.has_filters = hasFilters;
 
+    const quint8 ifaceIndex = m_ifaceTable.indexOf(rule.ifaceLuid);
+    const bool hasIface = (ifaceIndex != 0);
+    confRule.has_iface = hasIface;
+
     const int ruleSetCount = ruleSetInfo.count;
     confRule.set_count = ruleSetCount;
 
@@ -552,6 +560,13 @@ bool ConfBuffer::writeRule(const Rule &rule, const WalkRulesArgs &wra)
                 QByteArray::fromRawData(setIndexes, FORT_CONF_RULES_SET_INDEXES_SIZE(ruleSetCount));
 
         ConfData(data).writeArray(array);
+    }
+
+    // Write the rule's forced interface index (after the set indexes)
+    if (hasIface) {
+        char *ruleData = this->data() + oldSize;
+        quint32 *ifacePtr = (quint32 *) (ruleData + FORT_CONF_RULE_IFACE_OFFSET(&confRule));
+        *ifacePtr = quint32(ifaceIndex); // index stored in the low byte
     }
 
     // Write the rule's text

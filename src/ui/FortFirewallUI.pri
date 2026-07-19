@@ -7,4 +7,4 @@ LIBS *= -lFortFirewallUILib
 PRE_TARGETDEPS *= $$builddir/ui/FortFirewallUILib.lib
 
 # Windows
-LIBS *= -lntdll -lwinmm
+LIBS *= -lntdll -lwinmm -liphlpapi

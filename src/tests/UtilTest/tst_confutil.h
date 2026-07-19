@@ -15,6 +15,7 @@
 #include <util/conf/confappswalker.h>
 #include <util/conf/confbuffer.h>
 #include <util/conf/confruleswalker.h>
+#include <util/conf/ifacetable.h>
 #include <util/fileutil.h>
 #include <util/net/netformatutil.h>
 #include <util/net/netutil.h>
@@ -650,4 +651,78 @@ TEST_F(ConfUtilTest, ruleFilterActionOption)
         ASSERT_TRUE(conn.conn_log);
         ASSERT_TRUE(conn.conn_alert);
     }
+}
+
+TEST_F(ConfUtilTest, ifaceTableBuildDeterministic)
+{
+    IfaceTable table;
+
+    // Duplicates and a zero LUID must be dropped; result is sorted-unique
+    table.build({ 0x300, 0x100, 0x200, 0x100, 0 });
+
+    ASSERT_FALSE(table.isEmpty());
+    ASSERT_EQ(table.count(), 3);
+
+    // 1-based indexes follow the sorted order
+    ASSERT_EQ(int(table.indexOf(0x100)), 1);
+    ASSERT_EQ(int(table.indexOf(0x200)), 2);
+    ASSERT_EQ(int(table.indexOf(0x300)), 3);
+
+    // Unknown / none LUIDs map to 0
+    ASSERT_EQ(int(table.indexOf(0)), 0);
+    ASSERT_EQ(int(table.indexOf(0x999)), 0);
+
+    const auto &ifaces = table.ifaces();
+    ASSERT_EQ(ifaces.size(), 3);
+    ASSERT_EQ(quint64(ifaces[0].luid), quint64(0x100));
+    ASSERT_EQ(quint64(ifaces[1].luid), quint64(0x200));
+    ASSERT_EQ(quint64(ifaces[2].luid), quint64(0x300));
+}
+
+TEST_F(ConfUtilTest, ifaceTableEmpty)
+{
+    IfaceTable table;
+
+    table.build({ 0, 0 });
+
+    ASSERT_TRUE(table.isEmpty());
+    ASSERT_EQ(table.count(), 0);
+    ASSERT_EQ(int(table.indexOf(0x100)), 0);
+}
+
+TEST_F(ConfUtilTest, confWriteIfaceTable)
+{
+    EnvManager envManager;
+    FirewallConf conf;
+
+    conf.resetEdited(FirewallConf::AllEdited);
+    conf.prepareToSave();
+
+    ConfBuffer confBuf;
+
+    // Two referenced interfaces; sorted-unique -> indexes 1 and 2
+    confBuf.buildIfaceTable({ 0x2000, 0x1000 });
+
+    if (!confBuf.writeConf(conf, nullptr, &envManager)) {
+        qCritical() << "Error:" << confBuf.errorMessage();
+        Q_UNREACHABLE();
+    }
+
+    const char *data = confBuf.data() + DriverCommon::confIoConfOff();
+    PCFORT_CONF drvConf = (PCFORT_CONF) data;
+
+    ASSERT_EQ(int(drvConf->ifaces_n), 2);
+
+    const PCFORT_CONF_IFACE iface1 = fort_conf_iface_ref(drvConf, 1);
+    const PCFORT_CONF_IFACE iface2 = fort_conf_iface_ref(drvConf, 2);
+
+    ASSERT_TRUE(iface1 != nullptr);
+    ASSERT_TRUE(iface2 != nullptr);
+
+    ASSERT_EQ(quint64(iface1->luid), quint64(0x1000));
+    ASSERT_EQ(quint64(iface2->luid), quint64(0x2000));
+
+    // Out-of-range references resolve to none
+    ASSERT_TRUE(fort_conf_iface_ref(drvConf, 0) == nullptr);
+    ASSERT_TRUE(fort_conf_iface_ref(drvConf, 3) == nullptr);
 }

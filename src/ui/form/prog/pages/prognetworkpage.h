@@ -3,6 +3,9 @@
 
 #include "progbasepage.h"
 
+class QComboBox;
+class QLabel;
+
 class LineEdit;
 class ZonesSelector;
 
@@ -30,6 +33,10 @@ private:
     void setupUi();
     QLayout *setupZonesRuleLayout();
     QLayout *setupRuleLayout();
+    QLayout *setupIfaceLayout();
+
+    void reloadIfaceCombo(quint64 selectedLuid);
+    quint64 currentIfaceLuid() const;
 
     void selectRuleDialog();
     void editRuleDialog(int ruleId);
@@ -41,6 +48,8 @@ private:
     ZonesSelector *m_btZones = nullptr;
     LineEdit *m_editRuleName = nullptr;
     QToolButton *m_btSelectRule = nullptr;
+    QLabel *m_labelIface = nullptr;
+    QComboBox *m_comboIface = nullptr;
 };
 
 #endif // PROGNETWORKPAGE_H

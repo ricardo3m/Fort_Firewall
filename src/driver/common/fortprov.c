@@ -9,11 +9,12 @@
 #define FORT_PROV_CALLOUT_FILTERS_COUNT 4
 #define FORT_PROV_PACKET_FILTERS_COUNT  4
 #define FORT_PROV_DISCARD_FILTERS_COUNT 4
+#define FORT_PROV_REDIRECT_FILTERS_COUNT 2
 #define FORT_PROV_REAUTH_FILTERS_COUNT  4
 
 #define FORT_PROV_CALLOUTS_COUNT                                                                   \
     (FORT_PROV_CALLOUT_FILTERS_COUNT + FORT_PROV_PACKET_FILTERS_COUNT                              \
-            + FORT_PROV_DISCARD_FILTERS_COUNT)
+            + FORT_PROV_DISCARD_FILTERS_COUNT + FORT_PROV_REDIRECT_FILTERS_COUNT)
 
 static struct
 {
@@ -35,6 +36,8 @@ static struct
 
     FWPM_FILTER0 packet_filters[FORT_PROV_PACKET_FILTERS_COUNT];
     FWPM_FILTER0 discard_filters[FORT_PROV_DISCARD_FILTERS_COUNT];
+
+    FWPM_FILTER0 redirect_filters[FORT_PROV_REDIRECT_FILTERS_COUNT];
 
     FWPM_FILTER0 reauth_filters[FORT_PROV_REAUTH_FILTERS_COUNT];
 } g_provGlobal;
@@ -99,6 +102,14 @@ static void fort_prov_init_callouts(void)
         { FORT_GUID_CALLOUT_IN_IPPACKET_DISCARD_V6, L"FortCalloutInIpPacketDiscard6",
                 L"Fort Firewall Callout Inbound IpPacket Discard V6",
                 FWPM_LAYER_INBOUND_IPPACKET_V6_DISCARD },
+        /* rdcallout4 */
+        { FORT_GUID_CALLOUT_CONNECT_REDIRECT_V4, L"FortCalloutConnectRedirect4",
+                L"Fort Firewall Callout Connect Redirect V4",
+                FWPM_LAYER_ALE_CONNECT_REDIRECT_V4 },
+        /* rdcallout6 */
+        { FORT_GUID_CALLOUT_CONNECT_REDIRECT_V6, L"FortCalloutConnectRedirect6",
+                L"Fort Firewall Callout Connect Redirect V6",
+                FWPM_LAYER_ALE_CONNECT_REDIRECT_V6 },
     };
 
     FWPM_CALLOUT0 *cout = g_provGlobal.callouts;
@@ -309,6 +320,28 @@ static void fort_prov_init_discard_filters(void)
     fort_prov_init_filters(g_provGlobal.discard_filters, args, FORT_PROV_DISCARD_FILTERS_COUNT);
 }
 
+static void fort_prov_init_redirect_filters(void)
+{
+    const FORT_PROV_INIT_FILTER_ARGS d = {
+        .subLayerKey = FORT_GUID_SUBLAYER,
+        .flags = FWPM_FILTER_FLAG_PERMIT_IF_CALLOUT_UNREGISTERED,
+        .actionType = FWP_ACTION_CALLOUT_UNKNOWN,
+    };
+
+    const FORT_PROV_INIT_FILTER_ARGS args[] = {
+        /* rdfilter4 */
+        { FORT_GUID_FILTER_CONNECT_REDIRECT_V4, FWPM_LAYER_ALE_CONNECT_REDIRECT_V4, d.subLayerKey,
+                L"FortFilterConnectRedirect4", L"Fort Firewall Filter Connect Redirect V4", d.weight,
+                d.flags, d.actionType, FORT_GUID_CALLOUT_CONNECT_REDIRECT_V4 },
+        /* rdfilter6 */
+        { FORT_GUID_FILTER_CONNECT_REDIRECT_V6, FWPM_LAYER_ALE_CONNECT_REDIRECT_V6, d.subLayerKey,
+                L"FortFilterConnectRedirect6", L"Fort Firewall Filter Connect Redirect V6", d.weight,
+                d.flags, d.actionType, FORT_GUID_CALLOUT_CONNECT_REDIRECT_V6 },
+    };
+
+    fort_prov_init_filters(g_provGlobal.redirect_filters, args, FORT_PROV_REDIRECT_FILTERS_COUNT);
+}
+
 static void fort_prov_init_reauth_filters(void)
 {
     const FORT_PROV_INIT_FILTER_ARGS d = {
@@ -382,6 +415,8 @@ FORT_API void fort_prov_init(const FORT_PROV_INIT_CONF init_conf)
 
     fort_prov_init_packet_filters();
     fort_prov_init_discard_filters();
+
+    fort_prov_init_redirect_filters();
 
     fort_prov_init_reauth_filters();
 }
@@ -457,6 +492,9 @@ static void fort_prov_unregister_filters(HANDLE engine)
     FwpmFilterDeleteByKey0(engine, (GUID *) &FORT_GUID_FILTER_IN_TRANSPORT_DISCARD_V6);
     FwpmFilterDeleteByKey0(engine, (GUID *) &FORT_GUID_FILTER_IN_IPPACKET_DISCARD_V4);
     FwpmFilterDeleteByKey0(engine, (GUID *) &FORT_GUID_FILTER_IN_IPPACKET_DISCARD_V6);
+
+    FwpmFilterDeleteByKey0(engine, (GUID *) &FORT_GUID_FILTER_CONNECT_REDIRECT_V4);
+    FwpmFilterDeleteByKey0(engine, (GUID *) &FORT_GUID_FILTER_CONNECT_REDIRECT_V6);
 }
 
 static DWORD fort_prov_unregister_reauth_filters(HANDLE engine)
@@ -486,6 +524,9 @@ static void fort_prov_unregister_callouts(HANDLE engine)
     FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_IN_TRANSPORT_DISCARD_V6);
     FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_IN_IPPACKET_DISCARD_V4);
     FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_IN_IPPACKET_DISCARD_V6);
+
+    FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_CONNECT_REDIRECT_V4);
+    FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_CONNECT_REDIRECT_V6);
 
     // TODO: COMPAT: Remove after v4.1.0 (via v4.0.0)
     FwpmCalloutDeleteByKey0(engine, (GUID *) &FORT_GUID_CALLOUT_STREAM_V4);
@@ -581,7 +622,11 @@ static DWORD fort_prov_register_filters(HANDLE engine, const FORT_PROV_BOOT_CONF
     const FWPM_FILTER0 *filters = boot_conf.boot_filter ? g_provGlobal.callout_boot_filters
                                                         : g_provGlobal.callout_filters;
 
-    return fort_prov_add_filters(engine, filters, FORT_PROV_CALLOUT_FILTERS_COUNT);
+    if ((status = fort_prov_add_filters(engine, filters, FORT_PROV_CALLOUT_FILTERS_COUNT)))
+        return status;
+
+    return fort_prov_add_filters(
+            engine, g_provGlobal.redirect_filters, FORT_PROV_REDIRECT_FILTERS_COUNT);
 }
 
 static DWORD fort_prov_register_provider(HANDLE engine, const FORT_PROV_BOOT_CONF boot_conf)

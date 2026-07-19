@@ -8,7 +8,7 @@ bool Rule::isNameEqual(const Rule &o) const
 bool Rule::isOptionsEqual(const Rule &o) const
 {
     return isFlagsEqual(o) && isTerminateFlagsEqual(o) && isLogFlagsEqual(o) && isZonesEqual(o)
-            && notes == o.notes && ruleText == o.ruleText;
+            && ifaceLuid == o.ifaceLuid && notes == o.notes && ruleText == o.ruleText;
 }
 
 bool Rule::isFlagsEqual(const Rule &o) const

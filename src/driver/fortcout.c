@@ -23,6 +23,15 @@ static struct
     FWPS_CALLOUT0 discard_callouts[FORT_STAT_DISCARD_CALLOUT_IDS_COUNT];
 } g_calloutGlobal;
 
+#define FORT_REDIRECT_CALLOUTS_COUNT 2
+
+static struct
+{
+    FWPS_CALLOUT3 callouts[FORT_REDIRECT_CALLOUTS_COUNT];
+    UINT32 callout_ids[FORT_REDIRECT_CALLOUTS_COUNT];
+    HANDLE redirect_handle;
+} g_redirectGlobal;
+
 static void fort_callout_classify_block(FWPS_CLASSIFY_OUT0 *classifyOut)
 {
     classifyOut->actionType = FWP_ACTION_BLOCK;
@@ -762,6 +771,186 @@ static void NTAPI fort_callout_connect_v6(const FWPS_INCOMING_VALUES0 *inFixedVa
             classifyOut, &fi, /*inbound=*/FALSE, /*isIPv6=*/TRUE);
 }
 
+/*
+ * Force an application/rule to egress via a specific network interface.
+ *
+ * The UI resolves the configured NET_LUID to the interface's local IPv4/IPv6
+ * address and stores it in the conf's interface table. Here, at the
+ * ALE_CONNECT_REDIRECT layer, the connection's local (source) address is
+ * rewritten to that interface's address, forcing the OS to route the
+ * connection out through that interface.
+ *
+ * Precedence: the application's forced interface wins; a rule's forced
+ * interface is used only when the application defines none.
+ *
+ * When a forced interface is configured but currently unavailable (no IP for
+ * the connection's address family), the connection is blocked until the
+ * interface comes back (the UI re-pushes the conf on network changes).
+ */
+static PCFORT_CONF_IFACE fort_callout_redirect_iface(
+        const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues, PFORT_CONF_REF conf_ref, BOOL isIPv6,
+        BOOL *out_block)
+{
+    PFORT_DEVICE_CONF device_conf = &fort_device()->conf;
+
+    FORT_CALLOUT_ALE_EXTRA cx = { 0 };
+    PFORT_CONF_META_CONN conn = &cx.conn;
+
+    FORT_CALLOUT_ARG ca = {
+        .inMetaValues = inMetaValues,
+        .isIPv6 = (UCHAR) isIPv6,
+    };
+
+    conn->process_id = (UINT32) inMetaValues->processId;
+
+    fort_callout_ale_fill_meta_path(&ca, conn);
+
+    const FORT_APP_DATA app_data =
+            fort_conf_app_find(&conf_ref->conf, &conn->path, fort_conf_exe_find, conf_ref);
+
+    /* Precedence: app first, then rules (app rule, then global pre/post) */
+    UCHAR iface_index = app_data.flags.found ? app_data.iface_index : 0;
+
+    if (iface_index == 0) {
+        iface_index = fort_devconf_rule_iface_index(device_conf, app_data.rule_id);
+
+        if (iface_index == 0) {
+            const FORT_CONF_RULES_GLOB glob = device_conf->rules_glob;
+
+            iface_index = fort_devconf_rule_iface_index(device_conf, glob.pre_rule_id);
+            if (iface_index == 0) {
+                iface_index = fort_devconf_rule_iface_index(device_conf, glob.post_rule_id);
+            }
+        }
+    }
+
+    fort_path_buffer_free(&conn->path_buf);
+
+    if (iface_index == 0)
+        return NULL; /* no forced interface */
+
+    PCFORT_CONF_IFACE iface = fort_conf_iface_ref(&conf_ref->conf, iface_index);
+
+    const UINT16 need = (UINT16) (isIPv6 ? FORT_CONF_IFACE_HAS_IP6 : FORT_CONF_IFACE_HAS_IP4);
+
+    if (iface == NULL || (iface->flags & need) == 0) {
+        *out_block = TRUE; /* forced but unavailable */
+        return NULL;
+    }
+
+    return iface;
+}
+
+static void fort_callout_redirect_apply(const void *classifyContext, const FWPS_FILTER3 *filter,
+        FWPS_CLASSIFY_OUT0 *classifyOut, PCFORT_CONF_IFACE iface, BOOL isIPv6)
+{
+    UINT64 classifyHandle = 0;
+    NTSTATUS status = FwpsAcquireClassifyHandle0((void *) classifyContext, 0, &classifyHandle);
+    if (!NT_SUCCESS(status))
+        return;
+
+    FWPS_CONNECT_REQUEST0 *request = NULL;
+    status = FwpsAcquireWritableLayerDataPointer0(
+            classifyHandle, filter->filterId, 0, (PVOID *) &request, classifyOut);
+    if (!NT_SUCCESS(status)) {
+        FwpsReleaseClassifyHandle0(classifyHandle);
+        return;
+    }
+
+    /* Loop guard: do not re-redirect a connection we already redirected */
+    if (request->localRedirectHandle != g_redirectGlobal.redirect_handle) {
+        if (isIPv6) {
+            SOCKADDR_IN6 *sin6 = (SOCKADDR_IN6 *) &request->localAddressAndPort;
+            sin6->sin6_family = AF_INET6;
+            RtlCopyMemory(&sin6->sin6_addr, iface->ip6.data, sizeof(ip6_addr_t));
+        } else {
+            SOCKADDR_IN *sin = (SOCKADDR_IN *) &request->localAddressAndPort;
+            sin->sin_family = AF_INET;
+            sin->sin_addr.s_addr = iface->ip4; /* network byte order */
+        }
+
+        request->localRedirectHandle = g_redirectGlobal.redirect_handle;
+    }
+
+    FwpsApplyModifiedLayerData0(classifyHandle, request, 0);
+    FwpsReleaseClassifyHandle0(classifyHandle);
+}
+
+static void fort_callout_redirect_classify(const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
+        const void *classifyContext, const FWPS_FILTER3 *filter, FWPS_CLASSIFY_OUT0 *classifyOut,
+        BOOL isIPv6)
+{
+    if ((classifyOut->rights & FWPS_RIGHT_ACTION_WRITE) == 0)
+        return; /* can not modify */
+
+    PFORT_DEVICE_CONF device_conf = &fort_device()->conf;
+
+    if (fort_device_flag(device_conf, FORT_DEVICE_PS_ENUMERATED) == 0)
+        return;
+
+    PFORT_CONF_REF conf_ref = fort_conf_ref_take(device_conf);
+    if (conf_ref == NULL)
+        return;
+
+    BOOL do_block = FALSE;
+    PCFORT_CONF_IFACE iface =
+            fort_callout_redirect_iface(inMetaValues, conf_ref, isIPv6, &do_block);
+
+    FORT_CONF_IFACE iface_copy = { 0 };
+    const BOOL do_redirect = (iface != NULL);
+    if (do_redirect) {
+        iface_copy = *iface; /* copy before releasing conf_ref */
+    }
+
+    fort_conf_ref_put(device_conf, conf_ref);
+
+    if (do_block) {
+        fort_callout_classify_block(classifyOut);
+        return;
+    }
+
+    if (!do_redirect)
+        return; /* no forced interface: leave the connection unchanged */
+
+    fort_callout_redirect_apply(classifyContext, filter, classifyOut, &iface_copy, isIPv6);
+}
+
+static void NTAPI fort_callout_connect_redirect_v4(const FWPS_INCOMING_VALUES0 *inFixedValues,
+        const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues, void *layerData,
+        const void *classifyContext, const FWPS_FILTER3 *filter, UINT64 flowContext,
+        FWPS_CLASSIFY_OUT0 *classifyOut)
+{
+    UNUSED(inFixedValues);
+    UNUSED(layerData);
+    UNUSED(flowContext);
+
+    fort_callout_redirect_classify(
+            inMetaValues, classifyContext, filter, classifyOut, /*isIPv6=*/FALSE);
+}
+
+static void NTAPI fort_callout_connect_redirect_v6(const FWPS_INCOMING_VALUES0 *inFixedValues,
+        const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues, void *layerData,
+        const void *classifyContext, const FWPS_FILTER3 *filter, UINT64 flowContext,
+        FWPS_CLASSIFY_OUT0 *classifyOut)
+{
+    UNUSED(inFixedValues);
+    UNUSED(layerData);
+    UNUSED(flowContext);
+
+    fort_callout_redirect_classify(
+            inMetaValues, classifyContext, filter, classifyOut, /*isIPv6=*/TRUE);
+}
+
+static NTSTATUS NTAPI fort_callout_redirect_notify(
+        FWPS_CALLOUT_NOTIFY_TYPE notifyType, const GUID *filterKey, FWPS_FILTER3 *filter)
+{
+    UNUSED(notifyType);
+    UNUSED(filterKey);
+    UNUSED(filter);
+
+    return STATUS_SUCCESS;
+}
+
 static void NTAPI fort_callout_accept_v4(const FWPS_INCOMING_VALUES0 *inFixedValues,
         const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues, PVOID layerData,
         const FWPS_FILTER0 *filter, UINT64 flowContext, FWPS_CLASSIFY_OUT0 *classifyOut)
@@ -1047,13 +1236,34 @@ static void fort_callout_init_discard_callouts(void)
             cout++, FORT_GUID_CALLOUT_IN_IPPACKET_DISCARD_V6, &fort_callout_ippacket_discard_in_v6);
 }
 
+static void fort_callout_init_redirect_callouts(void)
+{
+    FWPS_CALLOUT3 *cout = g_redirectGlobal.callouts;
+
+    /* IPv4 connect redirect callout */
+    cout[0].calloutKey = FORT_GUID_CALLOUT_CONNECT_REDIRECT_V4;
+    cout[0].flags = 0;
+    cout[0].classifyFn = &fort_callout_connect_redirect_v4;
+    cout[0].notifyFn = &fort_callout_redirect_notify;
+    cout[0].flowDeleteFn = NULL;
+
+    /* IPv6 connect redirect callout */
+    cout[1].calloutKey = FORT_GUID_CALLOUT_CONNECT_REDIRECT_V6;
+    cout[1].flags = 0;
+    cout[1].classifyFn = &fort_callout_connect_redirect_v6;
+    cout[1].notifyFn = &fort_callout_redirect_notify;
+    cout[1].flowDeleteFn = NULL;
+}
+
 static void fort_callout_init(void)
 {
     RtlZeroMemory(&g_calloutGlobal, sizeof(g_calloutGlobal));
+    RtlZeroMemory(&g_redirectGlobal, sizeof(g_redirectGlobal));
 
     fort_callout_init_ale_callouts();
     fort_callout_init_packet_callouts();
     fort_callout_init_discard_callouts();
+    fort_callout_init_redirect_callouts();
 }
 
 static NTSTATUS fort_callout_register(
@@ -1095,6 +1305,31 @@ static NTSTATUS fort_callout_install_discard(PDEVICE_OBJECT device, PFORT_STAT s
             FORT_STAT_DISCARD_CALLOUT_IDS_COUNT);
 }
 
+static NTSTATUS fort_callout_install_redirect(PDEVICE_OBJECT device)
+{
+    NTSTATUS status;
+
+    status = FwpsRedirectHandleCreate0(
+            &FORT_GUID_PROVIDER, 0, &g_redirectGlobal.redirect_handle);
+    if (!NT_SUCCESS(status)) {
+        LOG("Callout Redirect: Create handle error: %x\n", status);
+        TRACE(FORT_CALLOUT_REGISTER_ERROR, status, 0, 0);
+        return status;
+    }
+
+    for (int i = 0; i < FORT_REDIRECT_CALLOUTS_COUNT; ++i) {
+        status = FwpsCalloutRegister3(
+                device, &g_redirectGlobal.callouts[i], &g_redirectGlobal.callout_ids[i]);
+        if (!NT_SUCCESS(status)) {
+            LOG("Callout Redirect: Register error: %x\n", status);
+            TRACE(FORT_CALLOUT_REGISTER_ERROR, status, i, 0);
+            return status;
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
 FORT_API NTSTATUS fort_callout_install(PDEVICE_OBJECT device)
 {
     FORT_CHECK_STACK(FORT_CALLOUT_INSTALL);
@@ -1114,6 +1349,9 @@ FORT_API NTSTATUS fort_callout_install(PDEVICE_OBJECT device)
     if (!NT_SUCCESS(status = fort_callout_install_discard(device, stat)))
         return status;
 
+    if (!NT_SUCCESS(status = fort_callout_install_redirect(device)))
+        return status;
+
     return STATUS_SUCCESS;
 }
 
@@ -1129,6 +1367,18 @@ FORT_API void fort_callout_remove(void)
         PUINT32 calloutId = &calloutIds[i];
         FwpsCalloutUnregisterById0(*calloutId);
         *calloutId = 0;
+    }
+
+    for (int i = 0; i < FORT_REDIRECT_CALLOUTS_COUNT; ++i) {
+        if (g_redirectGlobal.callout_ids[i] != 0) {
+            FwpsCalloutUnregisterById0(g_redirectGlobal.callout_ids[i]);
+            g_redirectGlobal.callout_ids[i] = 0;
+        }
+    }
+
+    if (g_redirectGlobal.redirect_handle != NULL) {
+        FwpsRedirectHandleDestroy0(g_redirectGlobal.redirect_handle);
+        g_redirectGlobal.redirect_handle = NULL;
     }
 }
 

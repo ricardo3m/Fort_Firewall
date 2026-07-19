@@ -1,6 +1,8 @@
 #include "prognetworkpage.h"
 
 #include <QCheckBox>
+#include <QComboBox>
+#include <QLabel>
 
 #include <conf/app.h>
 #include <conf/confrulemanager.h>
@@ -11,6 +13,7 @@
 #include <form/rule/ruleswindow.h>
 #include <fortglobal.h>
 #include <model/rulelistmodel.h>
+#include <util/net/netinterfaceutil.h>
 
 using namespace Fort;
 
@@ -26,6 +29,8 @@ void ProgNetworkPage::onPageInitialize(const App &app)
     m_btZones->setZones(app.zones.accept_mask);
     m_btZones->setUncheckedZones(app.zones.reject_mask);
 
+    reloadIfaceCombo(app.ifaceLuid);
+
     initializeRuleField(isSingleSelection());
 }
 
@@ -34,8 +39,14 @@ void ProgNetworkPage::onRetranslateUi()
     m_cbLanOnly->setText(tr("Block Internet Traffic"));
     m_btZones->retranslateUi();
 
+    m_labelIface->setText(tr("Force network interface:"));
+
     m_editRuleName->setPlaceholderText(tr("Rule"));
     m_btSelectRule->setToolTip(tr("Select Rule"));
+
+    if (m_comboIface->count() > 0) {
+        m_comboIface->setItemText(0, tr("Any Available"));
+    }
 }
 
 void ProgNetworkPage::initializeRuleField(bool isSingleSelection)
@@ -57,13 +68,70 @@ void ProgNetworkPage::setupUi()
     // Zones/Rule
     auto zonesRuleLayout = setupZonesRuleLayout();
 
+    // Forced network interface
+    auto ifaceLayout = setupIfaceLayout();
+
     // Main Layout
     auto layout = new QVBoxLayout();
     layout->addLayout(zonesRuleLayout);
     layout->addWidget(ControlUtil::createSeparator());
+    layout->addLayout(ifaceLayout);
     layout->addStretch();
 
     this->setLayout(layout);
+}
+
+QLayout *ProgNetworkPage::setupIfaceLayout()
+{
+    m_labelIface = ControlUtil::createLabel();
+
+    m_comboIface = ControlUtil::createComboBox();
+    m_comboIface->setMinimumWidth(200);
+
+    auto layout = new QHBoxLayout();
+    layout->addWidget(m_labelIface);
+    layout->addWidget(m_comboIface, 1);
+    layout->addStretch();
+
+    return layout;
+}
+
+void ProgNetworkPage::reloadIfaceCombo(quint64 selectedLuid)
+{
+    m_comboIface->clear();
+
+    // Index 0: "Any Available"
+    m_comboIface->addItem(tr("Any Available"), QVariant(quint64(0)));
+
+    int selectedIndex = 0;
+    bool selectedFound = (selectedLuid == 0);
+
+    const auto interfaces = NetInterfaceUtil::enumInterfaces();
+    for (const auto &info : interfaces) {
+        const QString text =
+                info.name.isEmpty() ? QString::number(info.luid) : info.name;
+
+        m_comboIface->addItem(text, QVariant(info.luid));
+
+        if (info.luid == selectedLuid) {
+            selectedIndex = m_comboIface->count() - 1;
+            selectedFound = true;
+        }
+    }
+
+    // Keep an unknown/absent LUID selectable so it is preserved on save
+    if (!selectedFound) {
+        m_comboIface->addItem(
+                tr("Interface #%1 (unavailable)").arg(selectedLuid), QVariant(selectedLuid));
+        selectedIndex = m_comboIface->count() - 1;
+    }
+
+    m_comboIface->setCurrentIndex(selectedIndex);
+}
+
+quint64 ProgNetworkPage::currentIfaceLuid() const
+{
+    return m_comboIface->currentData().toULongLong();
 }
 
 QLayout *ProgNetworkPage::setupZonesRuleLayout()
@@ -140,4 +208,6 @@ void ProgNetworkPage::fillApp(App &app) const
     app.zones.reject_mask = m_btZones->uncheckedZones();
 
     app.ruleId = currentRuleId();
+
+    app.ifaceLuid = currentIfaceLuid();
 }

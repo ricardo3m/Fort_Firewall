@@ -504,6 +504,26 @@ FORT_API BOOL fort_conf_app_group_blocked(const FORT_CONF_FLAGS conf_flags, FORT
     return conf_flags.group_blocked;
 }
 
+FORT_API PCFORT_CONF_IFACE fort_conf_iface_ref(PCFORT_CONF conf, UCHAR iface_index)
+{
+    if (iface_index == 0 || iface_index > conf->ifaces_n)
+        return NULL;
+
+    const FORT_CONF_IFACE *ifaces = (const FORT_CONF_IFACE *) (conf->data + conf->ifaces_off);
+
+    return &ifaces[iface_index - 1];
+}
+
+FORT_API UCHAR fort_conf_rule_iface_index(PCFORT_CONF_RULE rule)
+{
+    if (!rule->has_iface)
+        return 0;
+
+    const UINT32 v = *(const UINT32 *) ((const char *) rule + FORT_CONF_RULE_IFACE_OFFSET(rule));
+
+    return (UCHAR) (v & 0xFF);
+}
+
 inline static BOOL fort_conf_rules_rt_conn_filtered_zones_result(PFORT_CONF_META_CONN conn,
         PCFORT_CONF_RULE rule, const FORT_CONF_ZONES_CONN_FILTERED_OPT opt)
 {

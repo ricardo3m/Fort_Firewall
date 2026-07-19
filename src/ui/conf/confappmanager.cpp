@@ -59,6 +59,7 @@ inline constexpr int APP_END_TIMER_INTERVAL_MAX = 24 * 60 * 60 * 1000; // 1 day
     "    t.rule_id,"                                                                               \
     "    t.end_action,"                                                                            \
     "    t.end_time,"                                                                              \
+    "    t.iface_luid,"                                                                            \
     "    g.order_index as group_index,"                                                            \
     "    (alert.app_id IS NOT NULL) as alerted"
 
@@ -93,9 +94,9 @@ const char *const sqlUpsertApp = "INSERT INTO app(app_group_id, origin_path, pat
                                  "    lan_only, parked, log_stat, log_allowed_conn,"
                                  "    log_blocked_conn, blocked, kill_process,"
                                  "    accept_zones, reject_zones, rule_id,"
-                                 "    end_action, end_time, creat_time)"
+                                 "    end_action, end_time, iface_luid, creat_time)"
                                  "  VALUES(?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,"
-                                 "    ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)"
+                                 "    ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"
                                  "  ON CONFLICT(path) DO UPDATE"
                                  "  SET app_group_id = ?2, origin_path = ?3, icon_path = ?5,"
                                  "    name = ?6, notes = ?7, is_wildcard = ?8,"
@@ -104,7 +105,7 @@ const char *const sqlUpsertApp = "INSERT INTO app(app_group_id, origin_path, pat
                                  "    log_stat = ?15, log_allowed_conn = ?16,"
                                  "    log_blocked_conn = ?17, blocked = ?18, kill_process = ?19,"
                                  "    accept_zones = ?20, reject_zones = ?21, rule_id = ?22,"
-                                 "    end_action = ?23, end_time = ?24"
+                                 "    end_action = ?23, end_time = ?24, iface_luid = ?25"
                                  "  RETURNING app_id;";
 
 const char *const sqlUpdateApp = "UPDATE app"
@@ -115,7 +116,7 @@ const char *const sqlUpdateApp = "UPDATE app"
                                  "    log_stat = ?15, log_allowed_conn = ?16,"
                                  "    log_blocked_conn = ?17, blocked = ?18, kill_process = ?19,"
                                  "    accept_zones = ?20, reject_zones = ?21, rule_id = ?22,"
-                                 "    end_action = ?23, end_time = ?24"
+                                 "    end_action = ?23, end_time = ?24, iface_luid = ?25"
                                  "  WHERE app_id = ?1"
                                  "  RETURNING app_id;";
 
@@ -253,6 +254,7 @@ void ConfAppManager::beginAddOrUpdateApp(
         DbVar::nullable(app.ruleId),
         app.scheduleAction,
         DbVar::nullable(app.scheduleTime),
+        qint64(app.ifaceLuid),
         DbVar::nullable(DateUtil::now(), onlyUpdate),
     };
 
@@ -813,6 +815,10 @@ bool ConfAppManager::updateDriverConf(bool onlyFlags)
 
     const auto &conf = Fort::conf();
 
+    if (!onlyFlags) {
+        confBuf.buildIfaceTable(collectIfaceLuids());
+    }
+
     const bool ok = onlyFlags ? (confBuf.writeFlags(conf), true)
                               : confBuf.writeConf(conf, this, envManager());
 
@@ -867,8 +873,9 @@ void ConfAppManager::fillApp(App &app, const SqliteStmt &stmt)
     app.ruleId = stmt.columnUInt(20);
     app.scheduleAction = stmt.columnInt(21);
     app.scheduleTime = stmt.columnDateTime(22);
-    app.groupIndex = stmt.columnInt(23);
-    app.alerted = stmt.columnBool(24);
+    app.ifaceLuid = quint64(stmt.columnInt64(23));
+    app.groupIndex = stmt.columnInt(24);
+    app.alerted = stmt.columnBool(25);
 }
 
 bool ConfAppManager::updateDriverDeleteApp(const QString &appPath)
@@ -882,6 +889,8 @@ bool ConfAppManager::updateDriverDeleteApp(const QString &appPath)
 bool ConfAppManager::updateDriverUpdateApp(const App &app, bool remove)
 {
     ConfBuffer confBuf;
+
+    confBuf.buildIfaceTable(collectIfaceLuids());
 
     if (!confBuf.writeAppEntry(app)) {
         qCWarning(LC) << "Driver config error:" << confBuf.errorMessage();
@@ -900,5 +909,14 @@ bool ConfAppManager::updateDriverUpdateApp(const App &app, bool remove)
 
 bool ConfAppManager::updateDriverUpdateAppConf(const App &app)
 {
-    return app.isWildcard ? updateDriverConf() : updateDriverUpdateApp(app);
+    if (app.isWildcard)
+        return updateDriverConf();
+
+    // The interface table lives in the main conf and is referenced by per-app
+    // indexes. Whenever forced interfaces are in use, re-push the whole conf so
+    // the table and all indexes are rebuilt together and stay consistent.
+    if (!collectIfaceLuids().isEmpty())
+        return updateDriverConf();
+
+    return updateDriverUpdateApp(app);
 }

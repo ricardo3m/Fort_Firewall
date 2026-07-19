@@ -61,3 +61,22 @@ FORT_API BOOL fort_devconf_rules_conn_filtered(
 
     return res;
 }
+
+FORT_API UCHAR fort_devconf_rule_iface_index(PFORT_DEVICE_CONF device_conf, UINT16 rule_id)
+{
+    UCHAR iface_index = 0;
+
+    if (rule_id == 0)
+        return 0;
+
+    KIRQL oldIrql = ExAcquireSpinLockShared(&device_conf->lock);
+    PFORT_CONF_RULES rules = device_conf->rules;
+    if (rules != NULL && rule_id <= rules->max_rule_id) {
+        const FORT_CONF_RULES_RT rules_rt = fort_conf_rules_rt_make(rules, /*zones=*/NULL);
+        PFORT_CONF_RULE rule = fort_conf_rules_rt_rule(&rules_rt, rule_id);
+        iface_index = fort_conf_rule_iface_index(rule);
+    }
+    ExReleaseSpinLockShared(&device_conf->lock, oldIrql);
+
+    return iface_index;
+}

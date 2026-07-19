@@ -21,6 +21,7 @@
 #define FORT_CONF_RULE_SET_DEPTH_MAX    8
 #define FORT_CONF_ZONE_MAX              32
 #define FORT_CONF_GROUP_MAX             16
+#define FORT_CONF_IFACE_MAX             255
 #define FORT_CONF_APPS_LEN_MAX          (64 * 1024 * 1024)
 #define FORT_CONF_APP_PATH_MAX          (2 * 1024)
 #define FORT_CONF_APP_PATH_MAX_SIZE     (FORT_CONF_APP_PATH_MAX * sizeof(WCHAR))
@@ -222,7 +223,8 @@ typedef struct fort_conf_rule
 
     UINT16 has_zones : 1;
     UINT16 has_filters : 1;
-    UINT16 reserved : 5; /* not used */
+    UINT16 has_iface : 1;
+    UINT16 reserved : 4; /* not used */
 
     UCHAR set_count;
 } FORT_CONF_RULE, *PFORT_CONF_RULE;
@@ -263,8 +265,16 @@ typedef const FORT_CONF_RULE_FLAG *PCFORT_CONF_RULE_FLAG;
 #define FORT_CONF_RULE_SET_INDEXES_OFFSET(rule)                                                    \
     (sizeof(FORT_CONF_RULE) + ((rule)->has_zones ? sizeof(FORT_CONF_RULE_ZONES) : 0))
 
+/* Forced interface is appended after the rule's set indexes (kept last to not
+ * shift the zones/set-indexes layout read by the driver). */
+#define FORT_CONF_RULE_IFACE_SIZE sizeof(UINT32)
+
+#define FORT_CONF_RULE_IFACE_OFFSET(rule)                                                          \
+    (FORT_CONF_RULE_SET_INDEXES_OFFSET(rule)                                                       \
+            + FORT_CONF_RULES_SET_INDEXES_SIZE((rule)->set_count))
+
 #define FORT_CONF_RULE_SIZE(rule)                                                                  \
-    (FORT_CONF_RULE_SET_INDEXES_OFFSET(rule) + FORT_CONF_RULES_SET_INDEXES_SIZE((rule)->set_count))
+    (FORT_CONF_RULE_IFACE_OFFSET(rule) + ((rule)->has_iface ? FORT_CONF_RULE_IFACE_SIZE : 0))
 
 typedef struct fort_conf_zones
 {
@@ -311,6 +321,26 @@ typedef struct fort_traf
     };
 } FORT_TRAF, *PFORT_TRAF;
 
+/* Forced network interface: LUID resolved to a local IP by the UI */
+enum {
+    FORT_CONF_IFACE_HAS_IP4 = (1 << 0),
+    FORT_CONF_IFACE_HAS_IP6 = (1 << 1),
+};
+
+typedef struct fort_conf_iface
+{
+    UINT64 luid; /* NET_LUID of the forced interface */
+
+    UINT32 ip4; /* resolved local IPv4 (network byte order), 0 if unavailable */
+
+    UINT16 flags; /* FORT_CONF_IFACE_HAS_* */
+    UINT16 reserved; /* not used */
+
+    ip6_addr_t ip6; /* resolved local IPv6, zero if unavailable */
+} FORT_CONF_IFACE, *PFORT_CONF_IFACE;
+
+typedef const FORT_CONF_IFACE *PCFORT_CONF_IFACE;
+
 typedef struct fort_app_flags
 {
     UINT16 apply_parent : 1;
@@ -337,7 +367,7 @@ typedef struct fort_app_data
 {
     FORT_APP_FLAGS flags;
 
-    UCHAR reserved; /* not used */
+    UCHAR iface_index; /* 1-based index into conf ifaces table; 0 = none */
 
     UCHAR group_index;
 
@@ -479,11 +509,15 @@ typedef struct fort_conf
     UINT16 prefix_apps_n;
     UINT16 exe_apps_n;
 
+    UINT16 ifaces_n;
+
     UINT32 addr_groups_off;
 
     UINT32 wild_apps_off;
     UINT32 prefix_apps_off;
     UINT32 exe_apps_off;
+
+    UINT32 ifaces_off;
 
     char data[4];
 } FORT_CONF, *PFORT_CONF;
@@ -599,6 +633,12 @@ FORT_API FORT_APP_DATA fort_conf_app_find(PCFORT_CONF conf, PCFORT_APP_PATH path
         fort_conf_app_exe_find_func *exe_find_func, PVOID exe_context);
 
 FORT_API BOOL fort_conf_app_group_blocked(const FORT_CONF_FLAGS conf_flags, FORT_APP_DATA app_data);
+
+/* Get a forced-interface entry by its 1-based index (0 or out-of-range = NULL) */
+FORT_API PCFORT_CONF_IFACE fort_conf_iface_ref(PCFORT_CONF conf, UCHAR iface_index);
+
+/* Get the forced-interface index of a rule (0 = none) */
+FORT_API UCHAR fort_conf_rule_iface_index(PCFORT_CONF_RULE rule);
 
 FORT_API BOOL fort_conf_rules_rt_conn_filtered(
         PCFORT_CONF_RULES_RT rules_rt, PFORT_CONF_META_CONN conn, UINT16 rule_id);

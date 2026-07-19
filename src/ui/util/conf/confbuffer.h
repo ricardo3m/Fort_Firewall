@@ -7,6 +7,7 @@
 #include <util/conf/confruleswalker.h>
 
 #include "confdata.h"
+#include "ifacetable.h"
 
 class AddressGroup;
 class AppGroup;
@@ -29,6 +30,10 @@ public:
 
     const char *data() const { return buffer().constData(); }
     char *data() { return m_buffer.data(); }
+
+    // Build the shared interface table from the union of app+rule LUIDs.
+    // Must be called before writeConf()/writeRules() when the feature is used.
+    void buildIfaceTable(const QList<quint64> &luids) { m_ifaceTable.build(luids); }
 
 public slots:
     void writeVersion();
@@ -80,6 +85,8 @@ private:
     QString m_errorMessage;
 
     QByteArray m_buffer;
+
+    IfaceTable m_ifaceTable;
 };
 
 #endif // CONFBUFFER_H

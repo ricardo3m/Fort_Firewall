@@ -8,6 +8,7 @@
 
 #include "appparseoptions.h"
 #include "conf_types.h"
+#include "ifacetable.h"
 
 class ActionRange;
 class AreaRange;
@@ -32,6 +33,8 @@ struct WriteConfArgs
     const FirewallConf &conf;
 
     ParseAddressGroupsArgs ad;
+
+    const IfaceTable *ifaceTable = nullptr;
 };
 
 class ConfData
@@ -65,6 +68,8 @@ public:
     void writeOptionRange(const OptionRange &optionRange);
 
     void writeApps(const appdata_map_t &appsMap, bool useHeader = false);
+
+    void writeIfaces(const IfaceTable &ifaceTable);
 
     void migrateZoneData(const QByteArray &zoneData);
 

@@ -51,6 +51,8 @@ public:
 
     quint16 ruleId = 0;
 
+    quint64 ifaceLuid = 0; // forced network interface NET_LUID; 0 = none
+
     qint64 appId = 0;
 
     FORT_CONF_RULE_ZONES zones = {};

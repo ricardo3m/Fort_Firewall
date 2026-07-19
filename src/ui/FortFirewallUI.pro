@@ -220,6 +220,7 @@ SOURCES += \
     util/conf/confdata.cpp \
     util/conf/confrodata.cpp \
     util/conf/confutil.cpp \
+    util/conf/ifacetable.cpp \
     util/conf/ruletextparser.cpp \
     util/consoleoutput.cpp \
     util/dateutil.cpp \
@@ -245,6 +246,8 @@ SOURCES += \
     util/net/ipverrange.cpp \
     util/net/netdownloader.cpp \
     util/net/netformatutil.cpp \
+    util/net/netchangemonitor.cpp \
+    util/net/netinterfaceutil.cpp \
     util/net/netutil.cpp \
     util/net/optionrange.cpp \
     util/net/portrange.cpp \
@@ -501,6 +504,7 @@ HEADERS += \
     util/conf/confrodata.h \
     util/conf/confruleswalker.h \
     util/conf/confutil.h \
+    util/conf/ifacetable.h \
     util/conf/ruletextparser.h \
     util/consoleoutput.h \
     util/dateutil.h \
@@ -527,6 +531,8 @@ HEADERS += \
     util/net/ipverrange.h \
     util/net/netdownloader.h \
     util/net/netformatutil.h \
+    util/net/netchangemonitor.h \
+    util/net/netinterfaceutil.h \
     util/net/netutil.h \
     util/net/optionrange.h \
     util/net/portrange.h \

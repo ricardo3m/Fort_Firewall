@@ -17,6 +17,9 @@ FORT_API void fort_conf_rule_flag_set(
 FORT_API BOOL fort_devconf_rules_conn_filtered(
         PFORT_DEVICE_CONF device_conf, PFORT_CONF_META_CONN conn, UINT16 rule_id);
 
+/* Get the forced-interface index of a rule by id (0 = none) */
+FORT_API UCHAR fort_devconf_rule_iface_index(PFORT_DEVICE_CONF device_conf, UINT16 rule_id);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

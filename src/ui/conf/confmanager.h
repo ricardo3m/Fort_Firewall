@@ -15,6 +15,7 @@ class IniUser;
 class ServiceInfoManager;
 class Settings;
 class TaskInfo;
+class NetChangeMonitor;
 
 class ConfManager : public QObject, public IocService, public SqliteUtilBase
 {
@@ -85,6 +86,8 @@ private:
     void switchFilterOff();
     void switchAutoLearn();
 
+    void onNetworkChanged();
+
     bool setupDb();
 
     void setupDefault(FirewallConf &conf) const;
@@ -109,6 +112,8 @@ private:
     QTimer m_confTimer;
     QTimer m_filterOffTimer;
     QTimer m_autoLearnTimer;
+
+    NetChangeMonitor *m_netChangeMonitor = nullptr;
 };
 
 #endif // CONFMANAGER_H

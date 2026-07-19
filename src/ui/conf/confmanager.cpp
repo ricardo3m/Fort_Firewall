@@ -19,6 +19,7 @@
 #include <user/usersettings.h>
 #include <util/conf/confbuffer.h>
 #include <util/fileutil.h>
+#include <util/net/netchangemonitor.h>
 
 #include "addressgroup.h"
 #include "appgroup.h"
@@ -30,7 +31,7 @@ namespace {
 
 const QLoggingCategory LC("conf");
 
-inline constexpr int DATABASE_USER_VERSION = 57;
+inline constexpr int DATABASE_USER_VERSION = 58;
 
 inline constexpr int CONF_PERIODS_UPDATE_INTERVAL = 60 * 1000; // 1 minute
 
@@ -529,6 +530,26 @@ void ConfManager::setupTimers()
 
     m_autoLearnTimer.setSingleShot(true);
     connect(&m_autoLearnTimer, &QTimer::timeout, this, &ConfManager::switchAutoLearn);
+
+    // Re-push the configuration when network interfaces change so that forced
+    // interface IP addresses stay up to date.
+    m_netChangeMonitor = new NetChangeMonitor(this);
+    connect(m_netChangeMonitor, &NetChangeMonitor::changed, this,
+            &ConfManager::onNetworkChanged);
+    m_netChangeMonitor->start();
+}
+
+void ConfManager::onNetworkChanged()
+{
+    ConfAppManager *appManager = confAppManager();
+    if (appManager == nullptr)
+        return;
+
+    // Only re-push when a forced network interface is actually in use.
+    if (appManager->collectIfaceLuids().isEmpty())
+        return;
+
+    appManager->updateDriverConf();
 }
 
 void ConfManager::updateConfPeriods()
@@ -865,6 +886,8 @@ bool ConfManager::validateConf(const FirewallConf &conf)
         return true;
 
     ConfBuffer confBuf;
+
+    confBuf.buildIfaceTable(collectIfaceLuids());
 
     if (!confBuf.writeConf(conf, confAppManager(), envManager())) {
         qCCritical(LC) << "Conf save error:" << confBuf.errorMessage();

@@ -24,6 +24,7 @@
 #include <util/conf/confutil.h>
 #include <util/guiutil.h>
 #include <util/iconcache.h>
+#include <util/net/netinterfaceutil.h>
 #include <util/osutil.h>
 
 #include "rulescontroller.h"
@@ -79,6 +80,8 @@ void RuleEditDialog::initialize(const RuleRow &ruleRow)
 
     m_cbInlineZones->setChecked(ruleRow.inlineZones);
 
+    reloadIfaceCombo(ruleRow.ifaceLuid);
+
     m_cbTerminate->setChecked(ruleRow.terminate);
     m_comboTerminateAction->setCurrentIndex(ruleRow.terminateActionType());
     m_cbTerminateAlert->setChecked(ruleRow.terminateAlert);
@@ -132,6 +135,11 @@ void RuleEditDialog::retranslateUi()
     m_cbExclusive->setText(tr("Exclusive"));
     m_btZones->retranslateUi();
     m_cbInlineZones->setText(tr("Inline Zones"));
+
+    m_labelIface->setText(tr("Force network interface:"));
+    if (m_comboIface->count() > 0) {
+        m_comboIface->setItemText(0, tr("Any Available"));
+    }
 
     retranslateRulePlaceholderText();
     m_actRuleHelp->setText(tr("Help"));
@@ -216,6 +224,9 @@ QLayout *RuleEditDialog::setupMainLayout()
     // Zones Layout
     auto zonesLayout = setupZonesLayout();
 
+    // Force Interface Layout
+    auto ifaceLayout = setupIfaceLayout();
+
     // Rule Text
     setupEditRuleText();
 
@@ -244,6 +255,7 @@ QLayout *RuleEditDialog::setupMainLayout()
     layout->addLayout(actionsLayout);
     layout->addWidget(ControlUtil::createHSeparator());
     layout->addLayout(zonesLayout);
+    layout->addLayout(ifaceLayout);
     layout->addWidget(m_editRuleText);
     layout->addWidget(ControlUtil::createHSeparator());
     layout->addLayout(ruleSetHeaderLayout);
@@ -343,6 +355,57 @@ QLayout *RuleEditDialog::setupZonesLayout()
             ControlUtil::createVSeparator(), m_btZones, m_cbInlineZones, /*stretch*/ nullptr });
 
     return layout;
+}
+
+QLayout *RuleEditDialog::setupIfaceLayout()
+{
+    m_labelIface = ControlUtil::createLabel();
+
+    m_comboIface = ControlUtil::createComboBox();
+    m_comboIface->setMinimumWidth(200);
+
+    auto layout = ControlUtil::createHLayoutByWidgets(
+            { m_labelIface, m_comboIface, /*stretch*/ nullptr });
+    layout->setSpacing(10);
+
+    return layout;
+}
+
+void RuleEditDialog::reloadIfaceCombo(quint64 selectedLuid)
+{
+    m_comboIface->clear();
+
+    // Index 0: "Any Available"
+    m_comboIface->addItem(tr("Any Available"), QVariant(quint64(0)));
+
+    int selectedIndex = 0;
+    bool selectedFound = (selectedLuid == 0);
+
+    const auto interfaces = NetInterfaceUtil::enumInterfaces();
+    for (const auto &info : interfaces) {
+        const QString text = info.name.isEmpty() ? QString::number(info.luid) : info.name;
+
+        m_comboIface->addItem(text, QVariant(info.luid));
+
+        if (info.luid == selectedLuid) {
+            selectedIndex = m_comboIface->count() - 1;
+            selectedFound = true;
+        }
+    }
+
+    // Keep an unknown/absent LUID selectable so it is preserved on save
+    if (!selectedFound) {
+        m_comboIface->addItem(
+                tr("Interface #%1 (unavailable)").arg(selectedLuid), QVariant(selectedLuid));
+        selectedIndex = m_comboIface->count() - 1;
+    }
+
+    m_comboIface->setCurrentIndex(selectedIndex);
+}
+
+quint64 RuleEditDialog::currentIfaceLuid() const
+{
+    return m_comboIface->currentData().toULongLong();
 }
 
 void RuleEditDialog::setupEditRuleText()
@@ -601,6 +664,8 @@ void RuleEditDialog::fillRule(Rule &rule) const
     rule.zones.reject_mask = m_btZones->uncheckedZones();
 
     rule.inlineZones = m_cbInlineZones->isChecked();
+
+    rule.ifaceLuid = currentIfaceLuid();
 
     rule.ruleName = m_editName->text();
     rule.notes = m_editNotes->toPlainText();

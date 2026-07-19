@@ -49,6 +49,7 @@ private:
     QLayout *setupMainLayout();
     QLayout *setupFormLayout();
     QLayout *setupEnabledLayout();
+    QLayout *setupIfaceLayout();
     QLayout *setupActionsLayout();
     QLayout *setupZonesLayout();
     void setupEditRuleText();
@@ -62,6 +63,9 @@ private:
 
     void updateZonesLayout();
     void updateRuleSetViewVisible();
+
+    void reloadIfaceCombo(quint64 selectedLuid);
+    quint64 currentIfaceLuid() const;
 
     int ruleSetCurrentIndex() const;
 
@@ -95,6 +99,8 @@ private:
     QCheckBox *m_cbExclusive = nullptr;
     ZonesSelector *m_btZones = nullptr;
     QCheckBox *m_cbInlineZones = nullptr;
+    QLabel *m_labelIface = nullptr;
+    QComboBox *m_comboIface = nullptr;
     QAction *m_actRuleHelp = nullptr;
     PlainTextEdit *m_editRuleText = nullptr;
     QToolButton *m_btAddPresetRule = nullptr;

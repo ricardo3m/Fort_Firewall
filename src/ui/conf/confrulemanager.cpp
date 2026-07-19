@@ -13,6 +13,7 @@
 #include <util/conf/confutil.h>
 #include <util/dateutil.h>
 
+#include "confappmanager.h"
 #include "confmanager.h"
 
 using namespace Fort;
@@ -36,6 +37,7 @@ const QLoggingCategory LC("confRule");
     "    t.rule_type,"                                                                             \
     "    t.accept_zones,"                                                                          \
     "    t.reject_zones,"                                                                          \
+    "    t.iface_luid,"                                                                            \
     "    (menu.rule_id IS NOT NULL) AS tray_menu"
 
 const char *const sqlSelectRules = "SELECT" SELECT_RULE_FIELDS "  FROM rule t"
@@ -66,8 +68,8 @@ const char *const sqlSelectGlobMinRuleIdByType = "SELECT MIN(t.rule_id) FROM rul
 const char *const sqlInsertRule =
         "INSERT INTO rule(rule_id, enabled, blocked, exclusive, inline_zones,"
         "    terminate, term_blocked, term_alert, log_allowed_conn, log_blocked_conn,"
-        "    name, notes, rule_text, rule_type, accept_zones, reject_zones, mod_time)"
-        "  VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17);";
+        "    name, notes, rule_text, rule_type, accept_zones, reject_zones, iface_luid, mod_time)"
+        "  VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18);";
 
 const char *const sqlUpdateRule = "UPDATE rule"
                                   "  SET enabled = ?2, blocked = ?3, exclusive = ?4,"
@@ -75,7 +77,8 @@ const char *const sqlUpdateRule = "UPDATE rule"
                                   "    term_blocked = ?7, term_alert = ?8,"
                                   "    log_allowed_conn = ?9, log_blocked_conn = ?10,"
                                   "    name = ?11, notes = ?12, rule_text = ?13, rule_type = ?14,"
-                                  "    accept_zones = ?15, reject_zones = ?16, mod_time = ?17"
+                                  "    accept_zones = ?15, reject_zones = ?16, iface_luid = ?17,"
+                                  "    mod_time = ?18"
                                   "  WHERE rule_id = ?1;";
 
 const char *const sqlInsertRuleMenu = "INSERT INTO rule_menu(rule_id) VALUES(?1);";
@@ -311,6 +314,7 @@ bool ConfRuleManager::doAddOrUpdateRule(Rule &rule, bool &isNew, bool &isTrayMen
             rule.ruleType,
             rule.zones.accept_mask,
             rule.zones.reject_mask,
+            qint64(rule.ifaceLuid),
             DateUtil::now(),
         };
 
@@ -554,12 +558,21 @@ void ConfRuleManager::fillRule(Rule &rule, const SqliteStmt &stmt)
     rule.ruleType = Rule::RuleType(stmt.columnInt(11));
     rule.zones.accept_mask = stmt.columnUInt64(12);
     rule.zones.reject_mask = stmt.columnUInt64(13);
-    rule.trayMenu = stmt.columnBool(14);
+    rule.ifaceLuid = quint64(stmt.columnInt64(14));
+    rule.trayMenu = stmt.columnBool(15);
 }
 
 void ConfRuleManager::updateDriverRules()
 {
+    // Keep the main conf interface table in sync with the rules' references,
+    // so rule iface indexes resolve against an up-to-date table.
+    if (!collectIfaceLuids().isEmpty()) {
+        Fort::confAppManager()->updateDriverConf();
+    }
+
     ConfBuffer confBuf;
+
+    confBuf.buildIfaceTable(collectIfaceLuids());
 
     confBuf.writeRules(*this);
 

@@ -316,6 +316,8 @@ bool RuleListModel::updateRuleRow(
     ruleRow.modTime = stmt.columnDateTime(16);
     ruleRow.trayMenu = stmt.columnBool(17);
 
+    ruleRow.ifaceLuid = quint64(stmt.columnInt64(18));
+
     return true;
 }
 
@@ -339,7 +341,8 @@ QString RuleListModel::sqlBase() const
            "    t.accept_zones,"
            "    t.reject_zones,"
            "    t.mod_time,"
-           "    (menu.rule_id IS NOT NULL) AS tray_menu"
+           "    (menu.rule_id IS NOT NULL) AS tray_menu,"
+           "    t.iface_luid"
            "  FROM rule t"
            "  LEFT JOIN rule_menu menu ON menu.rule_id = t.rule_id"
            "  WHERE rule_type = :type";
