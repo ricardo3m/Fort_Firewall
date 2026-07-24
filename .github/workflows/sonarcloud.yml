@@ -1,0 +1,61 @@
+name: SonarQube Cloud Analysis
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: sonarcloud-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonarcloud:
+    name: Build + SonarQube Cloud scan
+    runs-on: windows-2022
+    env:
+      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory
+
+    steps:
+      - name: Checkout Fort Firewall
+        uses: actions/checkout@v4
+        with:
+          # Disabling shallow clones improves the relevancy of SonarQube reporting.
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.3"
+          arch: "win64_msvc2019_64"
+          cache: true
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Build Wrapper
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v6
+
+      - name: Create build directory
+        run: mkdir build
+
+      - name: qmake
+        working-directory: build
+        shell: cmd
+        run: qmake "%GITHUB_WORKSPACE%\src\FortFirewall.pro"
+
+      - name: Build with Build Wrapper
+        working-directory: build
+        shell: cmd
+        run: build-wrapper-win-x86-64 --out-dir "%GITHUB_WORKSPACE%\%BUILD_WRAPPER_OUT_DIR%" nmake
+
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            --define sonar.cfamily.compile-commands="${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json"
