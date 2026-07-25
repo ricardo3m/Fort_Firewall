@@ -28,7 +28,9 @@
 #    include <wdmsec.h>
 #else
 #    undef _WIN32_WINNT
-#    define _WIN32_WINNT 0x0603
+#    define _WIN32_WINNT 0x0A00 /* _WIN32_WINNT_WIN10 */
+#    undef NTDDI_VERSION
+#    define NTDDI_VERSION 0x0A000004 /* NTDDI_WIN10_RS3: needed for FWPS_FILTER3/FWPS_CALLOUT3 redirect callouts */
 #    define WIN32_LEAN_AND_MEAN
 #    include <windows.h>
 
