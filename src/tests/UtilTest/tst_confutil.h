@@ -135,7 +135,9 @@ TEST_F(ConfUtilTest, checkEnvManager)
 
     ASSERT_EQ(envManager.expandString("%d%"), "a");
 
-    ASSERT_NE(envManager.expandString("%HOME%"), QString());
+    // PATH is always set by the OS/process environment, unlike HOME which
+    // may be undefined on some Windows CI runners.
+    ASSERT_NE(envManager.expandString("%PATH%"), QString());
 }
 
 TEST_F(ConfUtilTest, rulesWriteRead)
