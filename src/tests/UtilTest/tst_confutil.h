@@ -135,6 +135,10 @@ TEST_F(ConfUtilTest, checkEnvManager)
 
     ASSERT_EQ(envManager.expandString("%d%"), "a");
 
+    // Don't rely on %HOME% being present in the real environment (it isn't
+    // guaranteed to be set, e.g. on CI runners); seed the cache directly.
+    envManager.setCachedEnvVar("HOME", "C:\\Users\\Test");
+
     ASSERT_NE(envManager.expandString("%HOME%"), QString());
 }
 
