@@ -28,8 +28,14 @@
 #    include <wdmsec.h>
 #else
 #    undef _WIN32_WINNT
-#    define _WIN32_WINNT 0x0603
+#    define _WIN32_WINNT 0x0A00
 #    define WIN32_LEAN_AND_MEAN
+
+#    include <sdkddkver.h> /* For NTDDI_WIN10_RS3 */
+
+#    undef NTDDI_VERSION
+#    define NTDDI_VERSION NTDDI_WIN10_RS3 /* Needed for WFP v3 callout/redirect types */
+
 #    include <windows.h>
 
 #    include <fwpmu.h>
