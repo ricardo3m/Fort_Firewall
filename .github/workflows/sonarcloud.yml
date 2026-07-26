@@ -53,9 +53,14 @@ jobs:
         run: build-wrapper-win-x86-64 --out-dir "%GITHUB_WORKSPACE%\%BUILD_WRAPPER_OUT_DIR%" nmake
 
       - name: SonarQube Cloud Scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
             --define sonar.cfamily.compile-commands="${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json"
+
+      - name: Skip SonarQube Cloud Scan
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        run: echo "::warning::Skipping SonarQube Cloud Scan because the SONAR_TOKEN secret is not configured."
