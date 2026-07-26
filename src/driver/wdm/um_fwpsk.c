@@ -15,6 +15,61 @@ NTSTATUS NTAPI FwpsCalloutUnregisterById0(const UINT32 calloutId)
     return STATUS_SUCCESS;
 }
 
+#if (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+NTSTATUS NTAPI FwpsCalloutRegister3(void *deviceObject, const FWPS_CALLOUT3 *callout, UINT32 *calloutId)
+{
+    UNUSED(deviceObject);
+    UNUSED(callout);
+    UNUSED(calloutId);
+    return STATUS_SUCCESS;
+}
+#endif // (NTDDI_VERSION >= NTDDI_WIN10_RS2)
+
+NTSTATUS NTAPI FwpsAcquireClassifyHandle0(void *classifyContext, UINT32 flags, UINT64 *classifyHandle)
+{
+    UNUSED(classifyContext);
+    UNUSED(flags);
+    UNUSED(classifyHandle);
+    return STATUS_SUCCESS;
+}
+
+void NTAPI FwpsReleaseClassifyHandle0(UINT64 classifyHandle)
+{
+    UNUSED(classifyHandle);
+}
+
+NTSTATUS NTAPI FwpsAcquireWritableLayerDataPointer0(UINT64 classifyHandle, UINT64 filterId,
+        UINT32 flags, PVOID *writableLayerData, FWPS_CLASSIFY_OUT0 *classifyOut)
+{
+    UNUSED(classifyHandle);
+    UNUSED(filterId);
+    UNUSED(flags);
+    UNUSED(writableLayerData);
+    UNUSED(classifyOut);
+    return STATUS_SUCCESS;
+}
+
+void NTAPI FwpsApplyModifiedLayerData0(UINT64 classifyHandle, PVOID modifiedLayerData, UINT32 flags)
+{
+    UNUSED(classifyHandle);
+    UNUSED(modifiedLayerData);
+    UNUSED(flags);
+}
+
+NTSTATUS NTAPI FwpsRedirectHandleCreate0(
+        const GUID *providerGuid, UINT32 flags, HANDLE *redirectHandle)
+{
+    UNUSED(providerGuid);
+    UNUSED(flags);
+    UNUSED(redirectHandle);
+    return STATUS_SUCCESS;
+}
+
+void NTAPI FwpsRedirectHandleDestroy0(HANDLE redirectHandle)
+{
+    UNUSED(redirectHandle);
+}
+
 NTSTATUS NTAPI FwpsGetPacketListSecurityInformation0(NET_BUFFER_LIST *packetList, UINT32 queryFlags,
         FWPS_PACKET_LIST_INFORMATION0 *packetInformation)
 {

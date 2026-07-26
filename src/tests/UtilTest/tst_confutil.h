@@ -135,6 +135,7 @@ TEST_F(ConfUtilTest, checkEnvManager)
 
     ASSERT_EQ(envManager.expandString("%d%"), "a");
 
+    envManager.setCachedEnvVar("HOME", "C:\\Users\\Test");
     ASSERT_NE(envManager.expandString("%HOME%"), QString());
 }
 
