@@ -887,7 +887,7 @@ bool ConfManager::validateConf(const FirewallConf &conf)
 
     ConfBuffer confBuf;
 
-    confBuf.buildIfaceTable(collectIfaceLuids());
+    confBuf.buildIfaceTable(confAppManager()->collectIfaceLuids());
 
     if (!confBuf.writeConf(conf, confAppManager(), envManager())) {
         qCCritical(LC) << "Conf save error:" << confBuf.errorMessage();
