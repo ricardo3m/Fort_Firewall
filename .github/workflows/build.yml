@@ -62,7 +62,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exes = Get-ChildItem -Path build -Recurse -Include LogBufferTest.exe,LogReaderTest.exe,StatTest.exe,UtilTest.exe -ErrorAction SilentlyContinue
+          # LogReaderTest.exe opens the real kernel-mode driver device, which isn't
+          # installed on GitHub-hosted runners, so it's built but not executed here.
+          $exes = Get-ChildItem -Path build -Recurse -Include LogBufferTest.exe,StatTest.exe,UtilTest.exe -ErrorAction SilentlyContinue
           if (-not $exes) {
             Write-Host "::error::No test executables were found under build/"
             exit 1

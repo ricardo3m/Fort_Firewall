@@ -52,7 +52,19 @@ jobs:
         shell: cmd
         run: build-wrapper-win-x86-64 --out-dir "%GITHUB_WORKSPACE%\%BUILD_WRAPPER_OUT_DIR%" nmake
 
+      - name: Check SONAR_TOKEN
+        id: check_sonar_token
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "::warning::SONAR_TOKEN secret is not configured; skipping SonarQube Cloud scan."
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: SonarQube Cloud Scan
+        if: steps.check_sonar_token.outputs.has_token == 'true'
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
