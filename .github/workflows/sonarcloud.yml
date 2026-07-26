@@ -16,6 +16,7 @@ jobs:
     runs-on: windows-2022
     env:
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - name: Checkout Fort Firewall
@@ -53,9 +54,15 @@ jobs:
         run: build-wrapper-win-x86-64 --out-dir "%GITHUB_WORKSPACE%\%BUILD_WRAPPER_OUT_DIR%" nmake
 
       - name: SonarQube Cloud Scan
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
             --define sonar.cfamily.compile-commands="${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json"
+
+      - name: Skip SonarQube scan (no token configured)
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: |
+          echo "::warning::Skipping SonarQube Cloud scan because the SONAR_TOKEN repository secret is not configured."
