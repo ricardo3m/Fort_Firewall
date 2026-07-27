@@ -695,6 +695,13 @@ TEST_F(ConfUtilTest, confWriteIfaceTable)
     EnvManager envManager;
     FirewallConf conf;
 
+    // writeConf() requires at least one Application Group
+    AppGroup *appGroup = new AppGroup();
+    appGroup->setName("Base");
+    appGroup->setEnabled(true);
+
+    conf.addAppGroup(appGroup);
+
     conf.resetEdited(FirewallConf::AllEdited);
     conf.prepareToSave();
 
